@@ -1,8 +1,16 @@
 <div class='controls'>
-<% if (logScreens.length > 1) { %><a href="#" class='close'>close</a><% } %>
-  <a href="#" class='clear'>clear</a>
-  <a href="#" class='filter'>filter <input type='text'/></a>
+    <% if (logScreens.length > 1) { %><a href="#" class='close'>close</a><% } %>
+    <a href="#" class='search' style="background: rgba(23,156,26,0.65);">search</a>
+    <select class='range' style="float: right; margin-top: 1px; margin-left: 5px">
+        <option value="1800">30 mins</option>
+        <option value="3600">1 hour</option>
+        <option value="10800">3 hours</option>
+    </select>
+    <a href="#" class='flatpickr' data-date-format="U" data-enable-time=true data-time_24hr=true data-enable-seconds=true>start time</a>
+    <a href="#" class='tail'>tail</a>
+    <a href="#" class='filter'>filter <input type='text'/></a>
+    <a href="#" class='clear'>clear</a>
 </div>
 <div class='messages'>
-  <div class='msg'></div>
+    <div class='msg'></div>
 </div>

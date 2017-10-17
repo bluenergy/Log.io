@@ -158,15 +158,17 @@ class WebClient
     @logNodes = new LogNodes
     @logStreams = new LogStreams
     @logScreens = new LogScreens
+    @socket = io.connect opts.host, secure: opts.secure
+    _on = (args...) => @socket.on args...
+
     @app = new ClientApplication
       logNodes: @logNodes
       logStreams: @logStreams
       logScreens: @logScreens
+      socket: @socket
       webClient: @
     @app.render()
     @_initScreens()
-    @socket = io.connect opts.host, secure: opts.secure
-    _on = (args...) => @socket.on args...
 
     # Bind to socket events from server
     _on 'add_node', @_addNode
@@ -267,7 +269,7 @@ class ClientApplication extends backbone.View
   el: '#web_client'
   template: _.template templates.clientApplication
   initialize: (opts) ->
-    {@logNodes, @logStreams, @logScreens, @webClient} = opts
+    {@logNodes, @logStreams, @logScreens, @socket, @webClient} = opts
     @controls = new LogControlPanel
       logNodes: @logNodes
       logStreams: @logStreams
@@ -275,6 +277,7 @@ class ClientApplication extends backbone.View
     @screens = new LogScreensPanel
       logScreens: @logScreens
       webClient: @webClient
+      socket: @socket
     $(window).resize @_resize if window?
     @listenTo @logScreens, 'add remove', @_resize
 
@@ -487,7 +490,7 @@ class LogScreensPanel extends backbone.View
   template: _.template templates.logScreensPanel
   id: 'log_screens'
   initialize: (opts) ->
-    {@logScreens, @webClient} = opts
+    {@logScreens, @webClient, @socket} = opts
     @listenTo @logScreens, 'add', @_addLogScreen
     @listenTo @logScreens, 'add remove', @_resize
     $(window).resize @_resize if window?
@@ -504,6 +507,7 @@ class LogScreensPanel extends backbone.View
     view = new LogScreenView
       logScreens: @logScreens
       logScreen: screen
+      socket: @socket
     @$el.find("div.log_screens").append view.render().el
     false
 
@@ -513,7 +517,7 @@ class LogScreensPanel extends backbone.View
     if lscreens.length
       height = $(window).height() - @$el.find("div.status_bar").height() - 10
       @$el.find(".log_screen .messages").each ->
-        $(@).height (height/lscreens.length) - 12
+        $(@).height (height / lscreens.length) - 12
 
   render: ->
     @$el.html @template()
@@ -526,19 +530,57 @@ class LogScreenView extends backbone.View
   template: _.template templates.logScreenView
   logTemplate: _.template templates.logMessage
   initialize: (opts) ->
-    {@logScreen, @logScreens} = opts
+    {@logScreen, @logScreens, @socket} = opts
     @listenTo @logScreen, 'destroy', => @remove()
     @listenTo @logScreen, 'new_log', @_addNewLogMessage
     @forceScroll = true
     @filter = null
+    @fp = null
+    @range = 3600
+    @startTime = Math.round(new Date().getTime() - @range)
+    @endTime = Math.round(new Date().getTime())
 
   events:
     "click .controls .close": "_close"
     "click .controls .clear": "_clear"
+    "click .controls .search": "_search"
+    "click .controls .range": "_range"
+    "click .controls .flatpickr": "_select_date"
+    "click .controls .tail": "_tail"
+
+  _range: (e) =>
+    range = $ e.currentTarget
+    @range = parseInt(range.val())
+    @endTime = @startTime + @range
 
   _close: =>
     @logScreen.logMessages.reset()
     @logScreen.destroy()
+    false
+
+  __duration: (start, end) ->
+    "#{start},#{end}"
+
+  _search: =>
+    @_clear()
+    @socket.emit 'search', @__duration @startTime.toString(), @endTime.toString() if @startTime != '' && (@startTime < @endTime)
+
+  _select_date: =>
+    @startTime = ''
+    that = @
+    @fp = $('.flatpickr').flatpickr({
+      dateFormat: 'U',
+      onClose: (selectedDates, dateStr, instance) ->
+        that.startTime = Math.round(parseInt(dateStr))
+        that.endTime = that.startTime + that.range
+    }) if !@fp
+
+    @logScreen.logMessages.reset()
+    false
+
+  _tail: =>
+    @socket.emit 'tail', ''
+    @_clear()
     false
 
   _clear: =>

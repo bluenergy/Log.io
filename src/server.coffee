@@ -89,6 +89,7 @@ class LogServer extends events.EventEmitter
   run: ->
     # Create TCP listener socket
     @listener = net.createServer (socket) =>
+      @socket = socket
       socket._buffer = ''
       socket.on 'data', (data) => @_receive data, socket
       socket.on 'error', => @_tearDown socket
@@ -165,11 +166,15 @@ class LogServer extends events.EventEmitter
       socket.node = node
       @_ping socket
 
+  send: (command, start, end) ->
+    switch command
+      when 'search' then @socket.write "+search|#{start}|#{end}|end" if @socket
+      when 'tail' then @socket.write '+tail|end' if @socket
+
   _ping: (socket) ->
     if socket.node
       socket.write 'ping'
       setTimeout (=> @_ping socket), 2000
-
 
 
 ###
@@ -248,6 +253,7 @@ class WebServer
 
     # Bind web client connection, events to web server
     @listener.on 'connection', (wclient) =>
+      logServer = @logServer
       wclient.emit 'add_node', node.toDict() for n, node of @logNodes
       wclient.emit 'add_stream', stream.toDict() for s, stream of @logStreams
       for n, node of @logNodes
@@ -258,6 +264,11 @@ class WebServer
         wclient.join pid
       wclient.on 'unwatch', (pid) ->
         wclient.leave pid
+      wclient.on 'search', (duration) ->
+        duration = duration.split(',')
+        logServer.send('search', duration[0], duration[1])
+      wclient.on 'tail', (pid) ->
+        logServer.send('tail')
     @_log.info 'Server started, listening...'
 
 exports.LogServer = LogServer
