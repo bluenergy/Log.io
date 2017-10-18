@@ -275,6 +275,7 @@ class ClientApplication extends backbone.View
       logStreams: @logStreams
       logScreens: @logScreens
     @screens = new LogScreensPanel
+      logNodes: @logNodes
       logScreens: @logScreens
       webClient: @webClient
       socket: @socket
@@ -490,7 +491,7 @@ class LogScreensPanel extends backbone.View
   template: _.template templates.logScreensPanel
   id: 'log_screens'
   initialize: (opts) ->
-    {@logScreens, @webClient, @socket} = opts
+    {@logNodes, @logScreens, @webClient, @socket} = opts
     @listenTo @logScreens, 'add', @_addLogScreen
     @listenTo @logScreens, 'add remove', @_resize
     $(window).resize @_resize if window?
@@ -505,6 +506,7 @@ class LogScreensPanel extends backbone.View
 
   _addLogScreen: (screen) =>
     view = new LogScreenView
+      logNodes: @logNodes
       logScreens: @logScreens
       logScreen: screen
       socket: @socket
@@ -530,7 +532,7 @@ class LogScreenView extends backbone.View
   template: _.template templates.logScreenView
   logTemplate: _.template templates.logMessage
   initialize: (opts) ->
-    {@logScreen, @logScreens, @socket} = opts
+    {@logNodes, @logScreen, @logScreens, @socket} = opts
     @listenTo @logScreen, 'destroy', => @remove()
     @listenTo @logScreen, 'new_log', @_addNewLogMessage
     @forceScroll = true
@@ -567,7 +569,7 @@ class LogScreenView extends backbone.View
     pairs = @logScreen.get 'pairIds'
     for pair in pairs
       [stream, nodeId] = pair.split ':'
-      @socket.emit 'search', @__duration nodeId, @startTime.toString(), @endTime.toString() if @startTime != '' && (@startTime < @endTime)
+      @socket.emit 'search', @__duration nodeId, @startTime.toString(), @endTime.toString() if @startTime != '' && (@startTime < @endTime) && @logNodes.get nodeId
     false
 
   _select_date: =>
@@ -588,7 +590,7 @@ class LogScreenView extends backbone.View
     pairs = @logScreen.get 'pairIds'
     for pair in pairs
       [stream, nodeId] = pair.split ':'
-      @socket.emit @tailing, nodeId
+      @socket.emit @tailing, nodeId if @logNodes.get nodeId
 
     if @tailing == 'tail'
       @tailing = 'stop'
