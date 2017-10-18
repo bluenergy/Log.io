@@ -586,7 +586,6 @@ class LogScreenView extends backbone.View
     false
 
   _tail: =>
-    @_clear()
     pairs = @logScreen.get 'pairIds'
     for pair in pairs
       [stream, nodeId] = pair.split ':'
@@ -596,6 +595,7 @@ class LogScreenView extends backbone.View
       @tailing = 'stop'
       @$el.find('.controls .tail').addClass 'tailing'
     else
+      @_clear()
       @tailing = 'tail'
       @$el.find('.controls .tail').removeClass 'tailing'
 
