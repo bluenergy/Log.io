@@ -539,6 +539,7 @@ class LogScreenView extends backbone.View
     @range = 3600
     @startTime = Math.round(new Date().getTime() - @range)
     @endTime = Math.round(new Date().getTime())
+    @tailing = 'tail'
 
   events:
     "click .controls .close": "_close"
@@ -558,12 +559,16 @@ class LogScreenView extends backbone.View
     @logScreen.destroy()
     false
 
-  __duration: (start, end) ->
-    "#{start},#{end}"
+  __duration: (nodeId, start, end) ->
+    "#{nodeId},#{start},#{end}"
 
   _search: =>
     @_clear()
-    @socket.emit 'search', @__duration @startTime.toString(), @endTime.toString() if @startTime != '' && (@startTime < @endTime)
+    pairs = @logScreen.get 'pairIds'
+    for pair in pairs
+      [stream, nodeId] = pair.split ':'
+      @socket.emit 'search', @__duration nodeId, @startTime.toString(), @endTime.toString() if @startTime != '' && (@startTime < @endTime)
+    false
 
   _select_date: =>
     @startTime = ''
@@ -579,8 +584,21 @@ class LogScreenView extends backbone.View
     false
 
   _tail: =>
-    @socket.emit 'tail', ''
     @_clear()
+    pairs = @logScreen.get 'pairIds'
+    for pair in pairs
+      [stream, nodeId] = pair.split ':'
+      @socket.emit @tailing, nodeId
+
+    if @tailing == 'tail'
+      @tailing = 'stop'
+      @$el.find('.controls .tail').addClass 'tailing'
+    else
+      @tailing = 'tail'
+      @$el.find('.controls .tail').removeClass 'tailing'
+
+    @$el.find('.controls .tail').text @tailing
+
     false
 
   _clear: =>

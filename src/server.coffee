@@ -40,7 +40,7 @@ class _LogObject
   _type: 'object'
   _pclass: ->
   _pcollection: ->
-  constructor: (@logServer, @name, _pairs=[]) ->
+  constructor: (@logServer, @name, _pairs=[], @agent) ->
     @logServer.emit "add_#{@_type}", @
     @pairs = {}
     @pclass = @_pclass()
@@ -90,11 +90,21 @@ class LogServer extends events.EventEmitter
     # Create TCP listener socket
     @listener = net.createServer (socket) =>
       @socket = socket
-      socket._buffer = ''
-      socket.on 'data', (data) => @_receive data, socket
+#      socket._buffer = ''
+#      socket.on 'data', (data) => @_receive data, socket
       socket.on 'error', => @_tearDown socket
       socket.on 'close', => @_tearDown socket
     @listener.listen @port, @host
+    @listener.on 'connection', (agent) =>
+      agent._buffer = ''
+      agent.on 'data', (data) => @_receive data, agent
+      agent.on 'close', => @_safeDeleteAgentByValue @logNodes, agent
+
+  _safeDeleteAgentByValue: (collection, agent) =>
+    for name, obj of collection
+      if `obj.agent === agent`
+        obj.remove()
+        delete collection[name]
 
   _tearDown: (socket) ->
     # Destroy a client socket
@@ -103,34 +113,34 @@ class LogServer extends events.EventEmitter
       @_removeNode socket.node.name
       delete socket.node
 
-  _receive: (data, socket) =>
+  _receive: (data, agent) =>
     part = data.toString()
-    socket._buffer += part
+    agent._buffer += part
     @_log.debug "Received TCP message: #{part}"
-    @_flush socket if socket._buffer.indexOf @_delimiter >= 0
+    @_flush agent if agent._buffer.indexOf @_delimiter >= 0
 
-  _flush: (socket) =>
+  _flush: (agent) =>
     # Handle messages in socket buffer
     # Pause socket while modifying buffer
-    socket.pause()
-    [msgs..., socket._buffer] = socket._buffer.split @_delimiter
-    socket.resume()
-    @_handle socket, msg for msg in msgs
+    agent.pause()
+    [msgs..., agent._buffer] = agent._buffer.split @_delimiter
+    agent.resume()
+    @_handle agent, msg for msg in msgs
 
-  _handle: (socket, msg) ->
+  _handle: (agent, msg) ->
     @_log.debug "Handling message: #{msg}"
     [mtype, args...] = msg.split '|'
     switch mtype
-      when '+log' then @_newLog args...
-      when '+node' then @_addNode args...
+      when '+log' then @_newLog agent, args...
+      when '+node' then @_addNode agent, args...
       when '+stream' then @_addStream args...
       when '-node' then @_removeNode args...
       when '-stream' then @_removeStream args...
-      when '+bind' then @_bindNode socket, args...
+      when '+bind' then @_bindNode agent, args...
       else @_log.error "Invalid TCP message: #{msg}"
 
-  _addNode: (nname, snames='') ->
-    @__add nname, snames, @logNodes, LogNode, 'node'
+  _addNode: (agent, nname, snames='') ->
+    @__add nname, snames, @logNodes, LogNode, 'node', agent
 
   _addStream: (sname, nnames='') ->
     @__add sname, nnames, @logStreams, LogStream, 'stream'
@@ -141,17 +151,17 @@ class LogServer extends events.EventEmitter
   _removeStream: (sname) ->
     @__remove sname, @logStreams, 'stream'
 
-  _newLog: (sname, nname, logLevel, message...) ->
+  _newLog: (agent, sname, nname, logLevel, message...) ->
     message = message.join '|'
     @_log.debug "Log message: (#{sname}, #{nname}, #{logLevel}) #{message}"
-    node = @logNodes[nname] or @_addNode nname, sname
+    node = @logNodes[nname] or @_addNode agent nname, sname
     stream = @logStreams[sname] or @_addStream sname, nname
     @emit 'new_log', stream, node, logLevel, message
 
-  __add: (name, pnames, _collection, _objClass, objName) ->
+  __add: (name, pnames, _collection, _objClass, objName, agent) ->
     @_log.info "Adding #{objName}: #{name} (#{pnames})"
     pnames = pnames.split ','
-    obj = _collection[name] = _collection[name] or new _objClass @, name, pnames
+    obj = _collection[name] = _collection[name] or new _objClass @, name, pnames, agent
     obj.addPair p for p in pnames when not obj.pairs[p]
 
   __remove: (name, _collection, objType) ->
@@ -160,21 +170,22 @@ class LogServer extends events.EventEmitter
       obj.remove()
       delete _collection[name]
 
-  _bindNode: (socket, obj, nname) ->
+  _bindNode: (agent, obj, nname) ->
     if node = @logNodes[nname]
       @_log.info "Binding node '#{nname}' to TCP socket"
-      socket.node = node
-      @_ping socket
+      agent.node = node
+      @_ping agent
 
-  send: (command, start, end) ->
+  send: (command, nname, start, end) ->
     switch command
-      when 'search' then @socket.write "+search|#{start}|#{end}|end" if @socket
-      when 'tail' then @socket.write '+tail|end' if @socket
+      when 'search' then @logNodes[nname].agent.write "+search|#{start}|#{end}|end" if @socket
+      when 'tail' then @logNodes[nname].agent.write '+tail|end' if @socket
+      when 'stop' then @logNodes[nname].agent.write '+stop|end' if @socket
 
-  _ping: (socket) ->
-    if socket.node
-      socket.write 'ping'
-      setTimeout (=> @_ping socket), 2000
+  _ping: (agent) ->
+    if agent.node
+      agent.write 'ping'
+      setTimeout (=> @_ping agent), 2000
 
 
 ###
@@ -265,10 +276,12 @@ class WebServer
       wclient.on 'unwatch', (pid) ->
         wclient.leave pid
       wclient.on 'search', (duration) ->
-        duration = duration.split(',')
-        logServer.send('search', duration[0], duration[1])
-      wclient.on 'tail', (pid) ->
-        logServer.send('tail')
+        [nodeId, start, end] = duration.split(',')
+        logServer.send('search', nodeId, start, end)
+      wclient.on 'tail', (nodeId) ->
+        logServer.send('tail', nodeId)
+      wclient.on 'stop', (nodeId) ->
+        logServer.send('stop', nodeId)
     @_log.info 'Server started, listening...'
 
 exports.LogServer = LogServer
